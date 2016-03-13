@@ -27,28 +27,24 @@ Read Water Flow Meter and output reading in liters/hour
 */
 class FlowSensors
 {
-protected:
-	#define	flowmeter1  2		// 1st flow Meter on pin 2
-	#define	flowmeter2  3		//2nd flow meter 0n pin3
-	#define flowmeter3  4		//3rd flow meter on pin 4
+protected: //jf, remove flow sensor 3
+	#define	flowmeter1  3		// 1st flow Meter on pin 2
+	#define	flowmeter2  4		//2nd flow meter 0n pin3
+	//#define flowmeter3  4		//3rd flow meter on pin 4
 	boolean	usingFlowSensors = false;	// if true, then in the state of using flow sensors, else not
 	unsigned long ReadFlowInterval = 1000;		// interval to read flow sensors at
 	int8_t flowTickContext;			// index to FlowTick timer in SensTmr
 	int8_t flowReadContext;			// index to FlowRead timer in SensTmr
 	unsigned long flow1tick = 0;	//frequency counter for flowsensor 1
 	unsigned long flow2tick = 0;	//frequency counter for flowsensor 2
-	unsigned long flow3tick = 0;	//frequency counter for flowsensor 3
 	boolean FlowState1 = false;		// high/low state of input for flow sensor 1
 	boolean FlowState2 = false;		// state of flow sensor 2
-	boolean FlowState3 = false;		//state of flow sensor 3
 
 	boolean flow1 = false;
 	boolean flow2 = false;
-	boolean flow3 = false;
 
 	unsigned long flow1dur = 0;		//duty cycle for flowsensor 1
 	unsigned long flow2dur = 0;		//duty cycle for flowsensor 2
-	unsigned long flow3dur = 0;		//duty cycle for flowsensor 3
 
 	unsigned long flowStartTime;	//starting time for flow calculations
 	unsigned long flowEndTime;		//ending time for flow calculationsunsigned 
@@ -58,7 +54,6 @@ protected:
 public:
 	unsigned int	FlowValue1;				// flow meter 1 reading in l/min
 	unsigned int	FlowValue2;				// reading for meter 2
-	unsigned int	FlowValue3;				// reading for meter 3
 	boolean FlowReadReady = false;			//used in main loop, if true that ok to read flow values 1-3
 
 	void FlowCalcSetup(void);				//sets up pins for flow sensors	
@@ -75,7 +70,6 @@ public:
 	{
 		pinMode(flowmeter1, INPUT);
 		pinMode(flowmeter2, INPUT);
-		pinMode(flowmeter3, INPUT);
 	}
 	//----------------------------------------------------------------------
 	void FlowSensors::FlowStartStop(boolean Start)		// if Start=true then enable soft interupts to measure flow, else turn them off.
@@ -110,7 +104,7 @@ public:
 	//----------------------------------------------------------------------
 	void FlowSensors::FlowCalcBegin()		// sets counters at the start of a flow calculation
 	{
-		flow1tick = flow2tick = flow3tick = 0;	// zero out flow sensor frequency counters
+		flow1tick = flow2tick = 0;	// zero out flow sensor frequency counters
 		flowStartTime = millis();				 // set starting time for measurement interval. note, millis wraps every ~ 50 days so need to check if end <start when reading
 	}
 	//----------------------------------------------------------------------
@@ -131,12 +125,6 @@ public:
 			FlowState2 = !FlowState2;	//invert flow state, begin checking for next state change
 			flow2tick++;				//increment frequency counter because pin changed state
 		}
-
-		if (digitalRead(flowmeter3) != FlowState3)
-		{
-			FlowState3 = !FlowState3;	//invert flow state, begin checking for next state change
-			flow3tick++;				//increment frequency counter because pin changed state
-		}
 	}
 	//----------------------------------------------------------------------
 	void FlowSensors::FlowCalcRead(void)			// reads the values of all flow sensors
@@ -148,15 +136,13 @@ public:
 		if (flowEndTime>flowStartTime)
 		{
 			ElapsedTime = flowEndTime - flowStartTime;
-			FlowValue1 = (flow1tick * 60 * 1000 / 7.5);// (Pulse frequency x 60 min) * (1000 ms/ElapsedTime in ms) / 7.5Q = flow rate in L/hour
+			FlowValue1 = (flow1tick * 60 * 1000 / ElapsedTime/ 7.5);// (Pulse frequency x 60 min) * (1000 ms/ElapsedTime in ms) / 7.5Q = flow rate in L/hour
 			FlowValue2 = (flow2tick * 60 * 1000 / ElapsedTime / 7.5);
-			FlowValue3 = (flow3tick * 60 * 1000 / 7.5);
 			FlowReadReady = true;	// set flag indicating flow results are ready to read
 
 									//look at duration of wave form duration because of Nyquist, sampling rate=5ms so avg duration should be > 10ms
 			flow1dur = ElapsedTime / (flow1tick + 1);
 			flow2dur = ElapsedTime / (flow2tick + 1);
-			flow3dur = ElapsedTime / (flow3tick + 1);
 		}
 		else
 		{
@@ -184,7 +170,7 @@ public:
 // digital port 0-3 open
 // Data wire is plugged into port 2 on the Arduino
 
-#define ONE_WIRE_BUS 2	// data is on port 2 of the arduino
+#define ONE_WIRE_BUS 11	// data is on port 11 of the arduino
 // Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
 OneWire oneWire(ONE_WIRE_BUS);
 
@@ -295,6 +281,7 @@ void	TempSensor::ReadTempSensor(void)
 {
 	// called at polling intervals (SensorPollRedirect is called at intervals set up by TurnOn and calls the routing. See SensorPollRedirect for expalination of need for indirection
 	// This routine reads the temp sensor, and sets results and flags indicating a reading is ready for use
+
 	sensors.requestTemperatures(); // Send the command to get temperatures
 	if (sensors.requestTemperaturesByAddress(Saddr))
 	{
@@ -317,9 +304,9 @@ void	TempSensor::SetPollInterval(int Delay)
 {
 	//saves the poll interval, changes the poll interval if sensor IsOn=true
 	PollInterval = Delay;
-	if(IsOn)
+	if (IsOn)
 	{
-		SensTmr.stop(SensorPollContext);	//turns off the poll timer for this context		
+		SensTmr.stop(SensorPollContext);	//turns off the poll timer for this context	
 		SensorPollContext = SensTmr.every(PollInterval, SensorPollRedirect, (void*)2);	// begin polling temp readings at new polling interval
 	}
 }
@@ -355,9 +342,11 @@ void setup(void)
 	TempSens.SetPollInterval(2000);	// set polling interval to 2 sec
 	TempSens.TurnOn(true);			//begin polling
 
-	FlowSens.FlowCalcSetup();		// initialize pins and counters
+	/*
+		FlowSens.FlowCalcSetup();		// initialize pins and counters
 	FlowSens.SetReadFlowInterval(2000);	// read every 2 seconds
 	FlowSens.FlowStartStop(true);		// begin readings
+	*/
 }
 
 
@@ -381,6 +370,7 @@ void printTemperature(DeviceAddress deviceAddress)
 
 void loop(void)
 {
+	SensTmr.update();	// check the timers used for sensor management
 	// setup initialized the temp sensor and initiated polling
 	if (TempSens.TempSensReady)
 	{
