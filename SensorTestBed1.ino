@@ -28,11 +28,11 @@ Read Water Flow Meter and output reading in liters/hour
 class FlowSensors
 {
 protected: //jf, remove flow sensor 3
-	#define	flowmeter1  3		// 1st flow Meter on pin 2
-	#define	flowmeter2  4		//2nd flow meter 0n pin3
-	//#define flowmeter3  4		//3rd flow meter on pin 4
+	#define	flowmeter1  2		// 1st flow Meter on pin 2
+	#define	flowmeter2  3		//2nd flow meter 0n pin3
+
 	boolean	usingFlowSensors = false;	// if true, then in the state of using flow sensors, else not
-	unsigned long ReadFlowInterval = 1000;		// interval to read flow sensors at
+	unsigned long ReadFlowInterval = 2000;		// interval to read flow sensors at
 	int8_t flowTickContext;			// index to FlowTick timer in SensTmr
 	int8_t flowReadContext;			// index to FlowRead timer in SensTmr
 	unsigned long flow1tick = 0;	//frequency counter for flowsensor 1
@@ -43,8 +43,7 @@ protected: //jf, remove flow sensor 3
 	boolean flow1 = false;
 	boolean flow2 = false;
 
-	unsigned long flow1dur = 0;		//duty cycle for flowsensor 1
-	unsigned long flow2dur = 0;		//duty cycle for flowsensor 2
+
 
 	unsigned long flowStartTime;	//starting time for flow calculations
 	unsigned long flowEndTime;		//ending time for flow calculationsunsigned 
@@ -54,6 +53,8 @@ protected: //jf, remove flow sensor 3
 public:
 	unsigned int	FlowValue1;				// flow meter 1 reading in l/min
 	unsigned int	FlowValue2;				// reading for meter 2
+	unsigned long flow1dur = 0;				//duty cycle for flowsensor 1, useful for adjusting sampling rate.
+	unsigned long flow2dur = 0;				//duty cycle for flowsensor 2
 	boolean FlowReadReady = false;			//used in main loop, if true that ok to read flow values 1-3
 
 	void FlowCalcSetup(void);				//sets up pins for flow sensors	
@@ -105,6 +106,8 @@ public:
 	void FlowSensors::FlowCalcBegin()		// sets counters at the start of a flow calculation
 	{
 		flow1tick = flow2tick = 0;	// zero out flow sensor frequency counters
+		FlowState1 = digitalRead(flowmeter1);	//starting state of the flow meters
+		FlowState2 = digitalRead (flowmeter1);	
 		flowStartTime = millis();				 // set starting time for measurement interval. note, millis wraps every ~ 50 days so need to check if end <start when reading
 	}
 	//----------------------------------------------------------------------
@@ -339,14 +342,15 @@ void setup(void)
 	Serial.print("Found "); Serial.print(numberOfDevices, DEC);	Serial.println(" temp sensors.");	//debug
 
 	TempSens.TempSensorInit(0);		// initialize device, get address, set precision	
-	TempSens.SetPollInterval(2000);	// set polling interval to 2 sec
-	TempSens.TurnOn(true);			//begin polling
+	TempSens.SetPollInterval(3000);	// set polling interval to 2 sec
 
-	/*
-		FlowSens.FlowCalcSetup();		// initialize pins and counters
-	FlowSens.SetReadFlowInterval(2000);	// read every 2 seconds
+
+
+	FlowSens.FlowCalcSetup();		// initialize pins and counters
+	FlowSens.SetReadFlowInterval(3000);	// read every 2 seconds
 	FlowSens.FlowStartStop(true);		// begin readings
-	*/
+	TempSens.TurnOn(true);			//begin polling temp
+	
 }
 
 
@@ -378,6 +382,13 @@ void loop(void)
 		Serial.print("Temperature for device 0 = "); Serial.println(TempSens.TempF);
 	}
 
+	if(FlowSens.FlowReadReady)
+	{
+		FlowSens.FlowReadReady = false;			// reset ready flag because wee are processing this
+		Serial.print(F("Flow Sensor 1 =")); Serial.print(FlowSens.FlowValue1); Serial.print(F(" l/min, duty cycle in ms=")); Serial.println(FlowSens.flow1dur);
+		Serial.print(F("Flow Sensor 2 =")); Serial.print(FlowSens.FlowValue2); Serial.print(F(" l/min, duty cycle in ms=")); Serial.println(FlowSens.flow2dur);
+		Serial.println(F("___________________________________________________________________"));
+	}
 			
 }
 
