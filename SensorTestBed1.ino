@@ -328,7 +328,124 @@ void SensorPollRedirect(void* context)
 	// this routine exists outside of the Sensor class because we can't use some timer.every method within a class in the .pde implementation.  Compiler cannot resolve which routine to call.
 	TempSens.ReadTempSensor();
 }
+/*--------------------------------------------------------------------------------------------------------------------
+Class and Methods for Water Level sensor
+--------------------------------------------------------------------------------------------------------------------*/
 
+class WaterLvlSensor
+{
+	/*
+	class for moisture sensor, adapted to sense water level.  WaterLvl sensor uses the Fundouino moisture sensor and analogue input
+	A1. Polling is not handled by this class.....mostly because Arduino
+	limits this class using another class in an external library, specifically the Timer class.
+
+	*/
+protected:
+#define WaterLvlPowerPin	23		// Digital pin 23 powers the moisture sensor.  Turning on only to read will prolong sensor life due to electroplating
+#define WaterLvlInput	1			// Analog input pin 
+#define WaterLvlSampleInterval 2000	// default sampling interval in ms
+#define WaterLvlReadDelay	500		// number of ms to wait to read moisture sensor after turning on the power
+#define	WaterHighPoint	500			// Analog reading > this = high level reading
+#define WaterLowPoint	200			// Analog reading > this and < WaterHighPoint
+#define WaterNonePoint	10			// Analog reading less than this= no water touching sensor
+	boolean	IsOn;			// true if activly taking sensor readings else false
+	boolean	ReadDelay;				// if true, the window where power to sensor is on and waiting to read
+	int		PollInterval;	// polling interval
+	int		SensorPollContext;	//variable set by SensTmr and passed by code into SensTmr.  It is an index for the timer object
+public:
+	float	WaterLvl;					// last reading by the moisture sensor
+	String	WaterLvlRange;				// sets a range value for the water level: none, min, low, mod, high.  Used by pump control to turn on and off
+	boolean	WaterLvlSensReady;			// tells main loop that there is a water level reading that is ready to be processed
+
+	void	WaterLvlSensorInit(void);//used like constructor because constructor syntax was not working ;-(.  passes in device #
+	void	TurnOn(boolean TurnOn);		//turn on/off flags and timers used to take readings at intervals
+	void	ReadWaterLvlSensor(void);		// called at polling intervals, reads the water level sensor, and sets results and flags indicating a reading is ready for use
+	void	SetPollInterval(int Delay);	//sets the poll interval, changes the poll interval if sensor IsOn=true	//boolean Locate(void);				// locates the temp sensor at Saddr, returns true if found else false
+} WaterSens;
+
+/*--------------------------------------------------------------------------------------------------------------------
+methods for water level sensor class
+--------------------------------------------------------------------------------------------------------------------*/
+void WaterLvlSensor::WaterLvlSensorInit(void)
+{
+	analogReference(DEFAULT);				//sets voltage reference for ADC to 5V.  Moisture sensor uses analog input
+	PollInterval = WaterLvlSampleInterval;	// set initial polling interval
+	pinMode(WaterLvlPowerPin, OUTPUT);		// using a digital output to power the moisture sensor, which used ~25ma.  Digital outputs on Mega can source 40 ma.
+	digitalWrite(WaterLvlPowerPin, LOW);	// turn off power to moisture sensor
+	ReadDelay = false;						// not in window after turning on power and before reading sensor
+}
+//----------------------------------------------------------------------
+void	WaterLvlSensor::TurnOn(boolean TurnOn)
+{
+
+	//if true, set Turn on sampling 
+	if (TurnOn)
+	{
+		//if here, then we want to turn on the polling for taking water level readings.  We use SensTmr object of the Timer class
+		//digitalWrite(WaterLvlPowerPin, HIGH);	// turn on power
+		IsOn = true;	//flag that we are taking moisture sensor readings
+		SensorPollContext = SensTmr.every(PollInterval, WaterLvlPollRedirect, (void*)4);	// begin polling temp readings, call SensorPollRedirect at intervals of PollInterval. timer index = SensorPollContext
+	}
+	else
+	{
+		// turn off polling for temperature sensor readings
+		//digitalWrite(WaterLvlPowerPin, LOW);	// turn off power
+		IsOn = false;	//flag that we are not taking temperature sensor readings
+		SensTmr.stop(SensorPollContext);	//turns off the poll timer for this context
+	}
+};
+//----------------------------------------------------------------------
+void	WaterLvlSensor::ReadWaterLvlSensor(void)
+{
+	// called at polling intervals (WaterLvlPollRedirect is called at intervals set up by TurnOn and calls the routing. See SensorPollRedirect for expalination of need for indirection
+	// based on the value of ReadDelay, This routine either turns on the power to the moisture sensor, sets the delay before reading.
+	// or reads the water level sensor, sets results and flags indicating a reading is ready for use, and resets polling interval
+
+	if (!ReadDelay)
+	{
+		//time to read the moisture level.  However, the power needs to be turned on and we need to wait for the sensor to settle.  The delay is set here
+		ReadDelay = true;	// flag we are entering the power up delay
+		digitalWrite(WaterLvlPowerPin, HIGH);	// turn on power
+		SensTmr.stop(SensorPollContext);		//turns off the poll timer for this context	
+		SensorPollContext = SensTmr.after(WaterLvlReadDelay, WaterLvlPollRedirect, (void*)4);	//	return to WaterLvlPollRedirect after power up delay
+	}
+	else
+	{
+		//power up delay is done, 
+		ReadDelay = false;	// flag that power up delay is over
+		WaterLvl = analogRead(WaterLvlInput);	//read water level analog input
+		digitalWrite(WaterLvlPowerPin, LOW);	// turn power off
+		SensorPollContext = SensTmr.every(PollInterval, WaterLvlPollRedirect, (void*)4);	// resume polling 
+	}
+
+	/*// set level flags based on reading.
+	if (WaterLvl >= WaterHighPoint) WaterLvlRange = "high"; else
+		if (WaterLvl < WaterHighPoint && WaterLvl > WaterLowPoint) WaterLvlRange = "GTlow"; else
+			if (WaterLvl <= WaterLowPoint && WaterLvl > WaterNonePoint) WaterLvlRange = "LTlow"; else
+				WaterLvlRange = "none";
+				*/
+	WaterLvlSensReady = true;	//used by main loop to know when to read water level
+	
+}
+//----------------------------------------------------------------------
+void	WaterLvlSensor::SetPollInterval(int Delay)
+{
+	//saves the poll interval, changes the poll interval if sensor IsOn=true
+	PollInterval = Delay;
+	if (IsOn)
+	{
+		SensTmr.stop(SensorPollContext);	//turns off the poll timer for this context	
+		SensorPollContext = SensTmr.every(PollInterval, WaterLvlPollRedirect, (void*)4);	// begin polling temp readings at new polling interval
+	}
+}
+//----------------------------------------------------------------------
+
+void WaterLvlPollRedirect(void* context)
+{
+	// this routine exists outside of the Sensor class because we can't use some timer.every method within a class in the .pde implementation.  Compiler cannot resolve which routine to call.
+	WaterSens.ReadWaterLvlSensor();	//read the water level sensor
+}
+//--------------------------------------------------------------------------------------------------------------------
 
 void setup(void)
 {
@@ -350,6 +467,8 @@ void setup(void)
 	FlowSens.SetReadFlowInterval(3000);	// read every 2 seconds
 	FlowSens.FlowStartStop(true);		// begin readings
 	TempSens.TurnOn(true);			//begin polling temp
+	WaterSens.WaterLvlSensorInit();	//initialize water sensor and default polling interval
+	WaterSens.TurnOn(true);			//turn on poling for water sensor
 	
 }
 
@@ -376,6 +495,15 @@ void loop(void)
 {
 	SensTmr.update();	// check the timers used for sensor management
 	// setup initialized the temp sensor and initiated polling
+	if (WaterSens.WaterLvlSensReady)
+	{
+		WaterSens.WaterLvlSensReady = false;	//reset it
+		Serial.print(F("water sensor reading="));
+		Serial.print(WaterSens.WaterLvl);
+		Serial.print(F(" WaterLvlRange="));
+		Serial.println(WaterSens.WaterLvlRange);
+	}
+	/*
 	if (TempSens.TempSensReady)
 	{
 		TempSens.TempSensReady = false;	//reset because we are processing this 
@@ -389,6 +517,7 @@ void loop(void)
 		Serial.print(F("Flow Sensor 2 =")); Serial.print(FlowSens.FlowValue2); Serial.print(F(" l/min, duty cycle in ms=")); Serial.println(FlowSens.flow2dur);
 		Serial.println(F("___________________________________________________________________"));
 	}
+	*/
 			
 }
 
