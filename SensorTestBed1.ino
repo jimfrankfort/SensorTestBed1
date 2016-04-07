@@ -348,10 +348,11 @@ protected:
 #define	WaterHighPoint	500			// Analog reading > this = high level reading
 #define WaterLowPoint	200			// Analog reading > this and < WaterHighPoint
 #define WaterNonePoint	10			// Analog reading less than this= no water touching sensor
-	boolean	IsOn;			// true if activly taking sensor readings else false
+	boolean	IsOn;					// true if activly taking sensor readings else false
 	boolean	ReadDelay;				// if true, the window where power to sensor is on and waiting to read
-	int		PollInterval;	// polling interval
-	int		SensorPollContext;	//variable set by SensTmr and passed by code into SensTmr.  It is an index for the timer object
+	int		PollInterval;			// polling interval
+	int		SensorPollContext;		// variable set by SensTmr and passed by code into SensTmr.  It is an index for the timer object
+	int		PowerDelayContext;		// context for timer that turns on power for WaterLvlReadDelay before reading.
 public:
 	float	WaterLvl;					// last reading by the moisture sensor
 	String	WaterLvlRange;				// sets a range value for the water level: none, min, low, mod, high.  Used by pump control to turn on and off
@@ -401,13 +402,12 @@ void	WaterLvlSensor::ReadWaterLvlSensor(void)
 	// based on the value of ReadDelay, This routine either turns on the power to the moisture sensor, sets the delay before reading.
 	// or reads the water level sensor, sets results and flags indicating a reading is ready for use, and resets polling interval
 
-	if (!ReadDelay)
+	if (!(ReadDelay))
 	{
 		//time to read the moisture level.  However, the power needs to be turned on and we need to wait for the sensor to settle.  The delay is set here
 		ReadDelay = true;	// flag we are entering the power up delay
 		digitalWrite(WaterLvlPowerPin, HIGH);	// turn on power
-		SensTmr.stop(SensorPollContext);		//turns off the poll timer for this context	
-		SensorPollContext = SensTmr.after(WaterLvlReadDelay, WaterLvlPollRedirect, (void*)4);	//	return to WaterLvlPollRedirect after power up delay
+		PowerDelayContext = SensTmr.after(WaterLvlReadDelay, WaterLvlPollRedirect, (void*)5);	//	return to WaterLvlPollRedirect after power up delay
 	}
 	else
 	{
@@ -415,7 +415,6 @@ void	WaterLvlSensor::ReadWaterLvlSensor(void)
 		ReadDelay = false;	// flag that power up delay is over
 		WaterLvl = analogRead(WaterLvlInput);	//read water level analog input
 		digitalWrite(WaterLvlPowerPin, LOW);	// turn power off
-		SensorPollContext = SensTmr.every(PollInterval, WaterLvlPollRedirect, (void*)4);	// resume polling 
 	}
 
 	/*// set level flags based on reading.
@@ -439,11 +438,117 @@ void	WaterLvlSensor::SetPollInterval(int Delay)
 	}
 }
 //----------------------------------------------------------------------
-
 void WaterLvlPollRedirect(void* context)
 {
 	// this routine exists outside of the Sensor class because we can't use some timer.every method within a class in the .pde implementation.  Compiler cannot resolve which routine to call.
 	WaterSens.ReadWaterLvlSensor();	//read the water level sensor
+}
+//--------------------------------------------------------------------------------------------------------------------
+/*--------------------------------------------------------------------------------------------------------------------
+Class and Methods for relay module
+--------------------------------------------------------------------------------------------------------------------*/
+
+class RelayBoard
+{
+	/*
+	class for Relay module board. Board is made by ### jf here ### and has 4 relays, each activated by a digital pin going low. 
+	
+	*/
+protected:
+	boolean Relay1State;	//on/of state of relay
+	boolean Relay2State;
+	boolean Relay3State;
+	boolean Relay4State;
+public:
+	#define Relay1	25		// Digital pin to control this relay
+	#define Relay2	26		
+	#define Relay3	27		
+	#define Relay4	28	
+
+	RelayBoard();	// constructor		
+	void	RelaySet(byte RelayNum, boolean RelayState);	// controls the state of RelayNum.  If RelayState=true then Relay is on else is off
+	void	RelayToggle(byte RelayNum);		//toggles the state of the relay.  If off, turns on.
+	boolean	GetRelayState(byte RelayNum);	// returns logical state of RelayNum
+} Relay;
+
+/*--------------------------------------------------------------------------------------------------------------------
+methods for RelayBoard class
+--------------------------------------------------------------------------------------------------------------------*/
+RelayBoard::RelayBoard(void)
+{
+	pinMode(Relay1, OUTPUT);
+	digitalWrite(Relay1, TRUE);	// turn off Relay 1
+	pinMode(Relay2, OUTPUT);
+	digitalWrite(Relay2, TRUE);	// turn off Relay 2
+	pinMode(Relay3, OUTPUT);
+	digitalWrite(Relay3, TRUE);	// turn off Relay 3
+	pinMode(Relay4, OUTPUT);
+	digitalWrite(Relay4, TRUE);	// turn off Relay 4
+
+	Relay1State = Relay2State = Relay3State = Relay4State = FALSE;	// flags indicating relays are off
+}
+//----------------------------------------------------------------------
+void	RelayBoard::RelaySet(byte RelayNum, boolean RelayState)
+{
+	// Sets the state of RelayNum to RelayState
+	digitalWrite(RelayNum, !(RelayState));	// invert RelayState because relay turned on by bringing digital pin low
+	// set the state flags
+	if (RelayNum == Relay1) { Relay1State = RelayState; }
+	else if (RelayNum == Relay2) { Relay2State = RelayState; }
+	else if (RelayNum == Relay3) { Relay3State = RelayState; }
+	else if (RelayNum == Relay4) { Relay4State = RelayState; }
+}
+//----------------------------------------------------------------------
+void	RelayBoard::RelayToggle(byte RelayNum)
+{
+	// toggle the state of the relay 
+
+	switch (RelayNum)
+	{
+		case Relay1:
+			digitalWrite(RelayNum, Relay1State);	// state is logical, pin is inverted to achieve logical state.
+			Relay1State = !(Relay1State);
+			break;
+		case Relay2:
+			digitalWrite(RelayNum, Relay2State);
+			Relay1State = !(Relay2State);
+			break;
+		case Relay3:
+			digitalWrite(RelayNum, Relay3State);
+			Relay1State = !(Relay3State);
+			break;
+		case Relay4:
+			digitalWrite(RelayNum, Relay4State);
+			Relay1State = !(Relay4State);
+			break;
+		default:
+			break;
+	}
+}
+//----------------------------------------------------------------------
+boolean	RelayBoard::GetRelayState(byte RelayNum)
+{
+	// get the logical state of the relay 
+
+	switch (RelayNum)
+	{
+	case Relay1:
+		return Relay1State;
+		break;
+	case Relay2:
+		return Relay2State;
+		break;
+	case Relay3:
+		return Relay3State;
+		break;
+	case Relay4:
+		return Relay4State;
+		break;
+	default:
+		return 0;	// error.
+		//errorlog entry goes here   JF
+		break;
+	}
 }
 //--------------------------------------------------------------------------------------------------------------------
 
